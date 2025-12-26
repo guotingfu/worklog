@@ -1,21 +1,23 @@
 [versions]
 agp = "8.4.1"
-kotlin = "2.0.0"
-ksp = "2.0.0-1.0.20"
+# 将 2.0.0 降级为 1.9.23 (阿里云肯定有)
+kotlin = "1.9.23"
+# KSP 版本必须与 Kotlin 版本对应
+ksp = "1.9.23-1.0.20"
 
-coreKtx = "1.17.0"
+coreKtx = "1.13.1"
 junit = "4.13.2"
-junitVersion = "1.3.0"
-espressoCore = "3.7.0"
-appcompat = "1.7.1"
-material = "1.13.0"
-activity = "1.12.2"
-constraintlayout = "2.2.1"
-composeBom = "2024.06.00"
+junitVersion = "1.1.5"
+espressoCore = "3.5.1"
+appcompat = "1.6.1"
+material = "1.12.0"
+activity = "1.9.0"
+constraintlayout = "2.1.4"
+composeBom = "2024.05.00"
 activityCompose = "1.9.0"
 room = "2.6.1"
 datastore = "1.1.1"
-lifecycle = "2.8.4"
+lifecycle = "2.8.0"
 vico = "1.14.0"
 konfetti = "2.0.4"
 
@@ -50,6 +52,7 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 
 # Vico
+com-patrykandpatrick-vico-core = { group = "com.patrykandpatrick.vico", name = "core", version.ref = "vico" }
 com-patrykandpatrick-vico-compose-m3 = { group = "com.patrykandpatrick.vico", name = "compose-m3", version.ref = "vico" }
 
 # Konfetti

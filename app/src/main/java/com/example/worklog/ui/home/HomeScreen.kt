@@ -1,52 +1,33 @@
 package com.example.worklog.ui.home
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.worklog.ui.theme.Indigo500
-import com.example.worklog.ui.theme.Red500
-import com.example.worklog.ui.theme.WorkLogTheme
+import com.example.worklog.ui.theme.*
+import kotlinx.coroutines.delay
 import nl.dionsegijn.konfetti.compose.KonfettiView
 import nl.dionsegijn.konfetti.core.Party
 import nl.dionsegijn.konfetti.core.Position
@@ -67,97 +48,52 @@ fun HomeScreen(
     val haptic = LocalHapticFeedback.current
     var showConfetti by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceEvenly
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            TopHeader(isWorking = isWorking)
+
+            TimerRing(isWorking = isWorking, timerText = timer)
+
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年M月d日")),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isWorking) {
-                        PulseAnimation()
+                LongPressActionButton(
+                    isWorking = isWorking,
+                    onLongPressComplete = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (isWorking) {
+                            showConfetti = true
+                        }
+                        onToggleWork()
                     }
-                    Text(
-                        text = if (isWorking) "工作中" else "未打卡",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = timer,
-                    fontSize = 72.sp,
-                    fontWeight = FontWeight.Light,
-                    modifier = Modifier.padding(vertical = 16.dp)
                 )
+                Spacer(modifier = Modifier.height(40.dp))
+                SalaryInfoCard(
+                    salary = annualSalary,
+                    isVisible = isSalaryVisible,
+                    onToggleVisibility = onToggleSalaryVisibility
+                )
+                Spacer(modifier = Modifier.height(32.dp))
             }
-
-            val buttonColor by animateColorAsState(if (isWorking) Red500 else Indigo500, label = "button color")
-
-            LongPressButton(
-                text = if (isWorking) "下班" else "上班",
-                color = buttonColor,
-                onClick = {
-                    // Trigger confetti only when stopping work
-                    if (isWorking) {
-                        showConfetti = true
-                    }
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleWork()
-                }
-            )
-
-            SalaryCard(salary = annualSalary, isVisible = isSalaryVisible, onToggleVisibility = onToggleSalaryVisibility)
-            Spacer(modifier = Modifier.height(16.dp))
         }
 
         if (showConfetti) {
             KonfettiView(
                 modifier = Modifier.fillMaxSize(),
-                parties = remember { listOf(party) },
-                updateListener = object : KonfettiView.UpdateListener {
-                    override fun onUpdate(view: KonfettiView, activeParticles: Int) {
-                        if (activeParticles == 0) showConfetti = false
-                    }
-                }
+                parties = remember { listOf(party) }
             )
-        }
-    }
-}
-
-@Composable
-fun SalaryCard(salary: String, isVisible: Boolean, onToggleVisibility: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(text = "年薪", style = MaterialTheme.typography.bodyLarge)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = if (isVisible) "¥ $salary" else "¥ ****",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-                IconButton(onClick = onToggleVisibility, modifier = Modifier.size(24.dp)) {
-                    Icon(
-                        imageVector = if (isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = "Toggle Salary Visibility"
-                    )
+            LaunchedEffect(showConfetti) {
+                if (showConfetti) {
+                    delay(4000)
+                    showConfetti = false
                 }
             }
         }
@@ -165,25 +101,211 @@ fun SalaryCard(salary: String, isVisible: Boolean, onToggleVisibility: () -> Uni
 }
 
 @Composable
-fun PulseAnimation() {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse scale"
+fun TopHeader(isWorking: Boolean) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .background(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            color = if (isWorking) StatusGreen else StatusGray,
+                            shape = CircleShape
+                        )
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isWorking) "工作中" else "未打卡",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = if (isWorking) "保持专注" else "休息时间",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+
+@Composable
+fun TimerRing(isWorking: Boolean, timerText: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = timerText,
+            fontSize = 56.sp, 
+            fontWeight = FontWeight.Light,
+            color = MaterialTheme.colorScheme.onBackground,
+            letterSpacing = 2.sp
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = if (isWorking) "本次工作时长" else "准备开始",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+@Composable
+fun SalaryInfoCard(salary: String, isVisible: Boolean, onToggleVisibility: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(text = "年薪", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isVisible) "¥ $salary" else "¥ ******",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            IconButton(
+                onClick = onToggleVisibility,
+                modifier = Modifier.background(MaterialTheme.colorScheme.background.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = if (isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                    contentDescription = "Toggle Visibility",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LongPressActionButton(
+    isWorking: Boolean,
+    onLongPressComplete: () -> Unit
+) {
+    var isPressed by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    val haptic = LocalHapticFeedback.current
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = if (isPressed) {
+            tween(durationMillis = 1500, easing = LinearEasing)
+        } else {
+            tween(durationMillis = 200)
+        },
+        label = "Progress"
     )
+
+    LaunchedEffect(animatedProgress) {
+        if (animatedProgress >= 1f && isPressed) {
+            onLongPressComplete()
+            isPressed = false
+            progress = 0f
+        }
+    }
+
+    val buttonBrush = if (isWorking) {
+        Brush.horizontalGradient(listOf(AlertRed, AlertLight))
+    } else {
+        Brush.horizontalGradient(listOf(PrimaryBlue, PrimaryLight))
+    }
+
+    val buttonSize = 160.dp
+    val innerButtonSize = 140.dp
+    val onBackgroundColor = MaterialTheme.colorScheme.onBackground
+
     Box(
-        modifier = Modifier
-            .padding(end = 8.dp)
-            .size(10.dp)
-            .scale(scale)
-            .clip(CircleShape)
-            .background(Red500)
-    )
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(buttonSize)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            if (isPressed || animatedProgress > 0) {
+                drawCircle(
+                    color = onBackgroundColor.copy(alpha = 0.1f),
+                    style = Stroke(width = 10.dp.toPx())
+                )
+                drawArc(
+                    color = if(isWorking) AlertRed else PrimaryBlue,
+                    startAngle = -90f,
+                    sweepAngle = 360f * animatedProgress,
+                    useCenter = false,
+                    style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .size(innerButtonSize)
+                .shadow(12.dp, CircleShape, spotColor = if (isWorking) AlertRed else PrimaryBlue)
+                .clip(CircleShape)
+                .background(buttonBrush)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            isPressed = true
+                            progress = 1f
+                            tryAwaitRelease()
+                            isPressed = false
+                            progress = 0f
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = if (isWorking) "下班" else "上班",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 32.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (isWorking) "HOLD TO STOP" else "HOLD TO START",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
+    }
 }
 
 private val party = Party(
@@ -195,18 +317,3 @@ private val party = Party(
     emitter = Emitter(duration = 100, TimeUnit.MILLISECONDS).max(100),
     position = Position.Relative(0.5, 0.3)
 )
-
-@Preview(showBackground = true)
-@Composable
-fun HomeScreenPreview() {
-    WorkLogTheme {
-        HomeScreen(
-            isWorking = true,
-            timer = "01:23:45",
-            annualSalary = "300,000.00",
-            isSalaryVisible = true,
-            onToggleWork = {},
-            onToggleSalaryVisibility = {}
-        )
-    }
-}

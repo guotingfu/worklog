@@ -21,7 +21,7 @@ data class HomeUiState(
     val isWorking: Boolean = false,
     val timer: String = "00:00:00",
     val annualSalary: String = "",
-    val isSalaryVisible: Boolean = true,
+    val isSalaryVisible: Boolean = false, // 默认隐藏
     val latestSession: Session? = null
 )
 

@@ -13,3 +13,19 @@
 .externalNativeBuild
 .cxx
 local.properties
+# 忽略 IDE 配置文件
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# 忽略 Kotlin 临时文件
+.kotlin/
+
+# 忽略所有生成的 APK 和构建产物
+*.apk
+*.aab
+
+# 忽略操作系统生成的文件 (Mac/Windows)
+.DS_Store
+Thumbs.db

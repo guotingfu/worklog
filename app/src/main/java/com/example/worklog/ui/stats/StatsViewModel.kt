@@ -5,41 +5,32 @@ import androidx.lifecycle.viewModelScope
 import com.example.worklog.data.local.db.Session
 import com.example.worklog.data.local.db.SessionDao
 import com.example.worklog.data.local.datastore.SettingsRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
-import java.time.DayOfWeek
-import java.time.Duration
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.YearMonth
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
-import java.time.temporal.TemporalAdjusters
+import com.patrykandpatrick.vico.core.entry.ChartEntry
+import com.patrykandpatrick.vico.core.entry.FloatEntry
+import kotlinx.coroutines.flow.*
+import java.time.*
+import java.time.format.TextStyle
 import java.time.temporal.WeekFields
 import java.util.Locale
 
-enum class Filter { WEEK, MONTH, QUARTER, YEAR }
-enum class TimeUnit { HOURS, MINUTES }
+enum class StatsPeriod { WEEK, MONTH, YEAR }
+enum class TimeDisplayUnit { HOUR, MINUTE }
 
-data class WorkHours(
-    val regular: Duration = Duration.ZERO,
-    val overtime: Duration = Duration.ZERO
-) {
-    val total: Duration get() = regular + overtime
-}
+data class ChartData(
+    val entries: List<List<ChartEntry>> = emptyList(),
+    val labels: List<String> = emptyList()
+)
 
 data class StatsUiState(
-    val filter: Filter = Filter.WEEK,
-    val timeUnit: TimeUnit = TimeUnit.HOURS,
-    val chartData: Map<String, WorkHours> = emptyMap(),
-    val totalWorkHours: WorkHours = WorkHours(),
-    val realHourlyWage: Double = 0.0,
-    val wageDiffPercentage: Double = 0.0,
-    val overtimeSummary: String = ""
+    val selectedPeriod: StatsPeriod = StatsPeriod.WEEK,
+    val selectedUnit: TimeDisplayUnit = TimeDisplayUnit.HOUR,
+    val chartData: ChartData = ChartData(),
+    val totalWorkDuration: Double = 0.0,
+    val overtimeDuration: Double = 0.0,
+    val actualWage: Double = 0.0,
+    val isWageStandard: Boolean = true,
+    val isLoading: Boolean = true,
+    val standardWorkHours: Double = 9.0 // [新增] 用于UI判断是否显示异常提示
 )
 
 class StatsViewModel(
@@ -47,158 +38,200 @@ class StatsViewModel(
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
-    private val _filter = MutableStateFlow(Filter.WEEK)
-    private val _timeUnit = MutableStateFlow(TimeUnit.HOURS)
+    private val _selectedPeriod = MutableStateFlow(StatsPeriod.WEEK)
+    private val _selectedUnit = MutableStateFlow(TimeDisplayUnit.HOUR)
 
     val uiState: StateFlow<StatsUiState> = combine(
-        _filter, _timeUnit, sessionDao.getAllSessions(),
-        settingsRepository.annualSalaryFlow, settingsRepository.startTimeFlow, settingsRepository.endTimeFlow
-    ) { filter, timeUnit, sessions, annualSalaryStr, standardStartStr, standardEndStr ->
+        _selectedPeriod,
+        _selectedUnit,
+        sessionDao.getAllSessions(),
+        settingsRepository.annualSalaryFlow,
+        settingsRepository.startTimeFlow,
+        settingsRepository.endTimeFlow
+    ) { args: Array<Any?> ->
+        val period = args[0] as StatsPeriod
+        val unit = args[1] as TimeDisplayUnit
+        val sessions = args[2] as List<Session>
+        val salaryStr = args[3] as String
+        val startStr = args[4] as String
+        val endStr = args[5] as String
 
-        if (sessions.isEmpty()) {
-            return@combine StatsUiState()
-        }
+        val standardWorkStartTime = runCatching { LocalTime.parse(startStr) }.getOrDefault(LocalTime.of(9, 0))
+        val standardWorkEndTime = runCatching { LocalTime.parse(endStr) }.getOrDefault(LocalTime.of(18, 0))
+        val annualSalary = salaryStr.toDoubleOrNull() ?: 0.0
+        val standardWorkDayDuration = Duration.between(standardWorkStartTime, standardWorkEndTime)
 
-        val standardStartTime = LocalTime.parse(standardStartStr)
-        val standardEndTime = LocalTime.parse(standardEndStr)
-        val annualSalary = annualSalaryStr.toDoubleOrNull() ?: 0.0
+        // [修改] 计算标准工作小时数，传给UI用于判断异常
+        val standardWorkHours = standardWorkDayDuration.toMillis() / 3600_000.0
 
-        val (periodStart, periodEnd) = getPeriod(filter)
+        val (periodStart, periodEnd) = getPeriod(period)
         val periodSessions = sessions.filter { it.startTime.isAfter(periodStart) && it.startTime.isBefore(periodEnd) }
 
-        val workHoursByDay = periodSessions
-            .flatMap { splitSession(it, standardStartTime, standardEndTime) }
-            .groupBy { it.startTime.atZone(ZoneId.systemDefault()).toLocalDate() }
-            .mapValues { entry ->
-                val regular = entry.value.sumOf { it.regular.toMillis() }
-                val overtime = entry.value.sumOf { it.overtime.toMillis() }
-                WorkHours(Duration.ofMillis(regular), Duration.ofMillis(overtime))
-            }
+        val chartData = processChartData(periodSessions, period, standardWorkDayDuration, unit)
 
-        val totalWorkHours = WorkHours(
-            regular = Duration.ofMillis(workHoursByDay.values.sumOf { it.regular.toMillis() }),
-            overtime = Duration.ofMillis(workHoursByDay.values.sumOf { it.overtime.toMillis() })
+        val totalWorkDuration = periodSessions.sumOf { Duration.between(it.startTime, it.endTime ?: it.startTime).toMillis() }
+        val overtimeDuration = calculateOvertime(periodSessions, standardWorkStartTime, standardWorkEndTime)
+
+        val (actualWage, isStandard) = calculateActualWage(
+            annualSalary,
+            totalWorkDuration,
+            standardWorkDayDuration,
+            countWorkdays(periodStart, periodEnd),
+            unit
         )
 
-        val (realWage, diff) = calculateRealHourlyWage(filter, periodStart, periodEnd, totalWorkHours.total, annualSalary, standardStartTime, standardEndTime)
+        val divisor = if (unit == TimeDisplayUnit.HOUR) 3600_000.0 else 60_000.0
 
         StatsUiState(
-            filter = filter,
-            timeUnit = timeUnit,
-            chartData = formatChartData(workHoursByDay, filter),
-            totalWorkHours = totalWorkHours,
-            realHourlyWage = realWage,
-            wageDiffPercentage = diff,
-            overtimeSummary = if (totalWorkHours.overtime > Duration.ZERO) "本周期额外工作了 ${totalWorkHours.overtime.toHours()} 小时" else ""
+            selectedPeriod = period,
+            selectedUnit = unit,
+            chartData = chartData,
+            totalWorkDuration = totalWorkDuration / divisor,
+            overtimeDuration = overtimeDuration / divisor,
+            actualWage = actualWage,
+            isWageStandard = isStandard,
+            isLoading = false,
+            standardWorkHours = standardWorkHours // [新增]
         )
-
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StatsUiState())
 
-    private fun splitSession(session: Session, standardStart: LocalTime, standardEnd: LocalTime): List<WorkHours> {
-        if (session.endTime == null) return emptyList()
-        val sessionDate = session.startTime.atZone(ZoneId.systemDefault()).toLocalDate()
-        val isWeekend = sessionDate.dayOfWeek == DayOfWeek.SATURDAY || sessionDate.dayOfWeek == DayOfWeek.SUNDAY
+    fun setPeriod(period: StatsPeriod) { _selectedPeriod.value = period }
+    fun setUnit(unit: TimeDisplayUnit) { _selectedUnit.value = unit }
 
-        if (isWeekend) {
-            return listOf(WorkHours(overtime = Duration.between(session.startTime, session.endTime)))
+    private fun getPeriod(period: StatsPeriod): Pair<Instant, Instant> {
+        val today = LocalDate.now()
+        val zoneId = ZoneId.systemDefault()
+        return when (period) {
+            StatsPeriod.WEEK -> {
+                val firstDayOfWeek = today.with(WeekFields.of(Locale.CHINESE).firstDayOfWeek)
+                Pair(firstDayOfWeek.atStartOfDay(zoneId).toInstant(), firstDayOfWeek.plusDays(7).atStartOfDay(zoneId).toInstant())
+            }
+            StatsPeriod.MONTH -> {
+                val firstDayOfMonth = today.withDayOfMonth(1)
+                Pair(firstDayOfMonth.atStartOfDay(zoneId).toInstant(), firstDayOfMonth.plusMonths(1).atStartOfDay(zoneId).toInstant())
+            }
+            StatsPeriod.YEAR -> {
+                val firstDayOfYear = today.withDayOfYear(1)
+                Pair(firstDayOfYear.atStartOfDay(zoneId).toInstant(), firstDayOfYear.plusYears(1).atStartOfDay(zoneId).toInstant())
+            }
         }
-
-        val standardStartInstant = sessionDate.atTime(standardStart).atZone(ZoneId.systemDefault()).toInstant()
-        val standardEndInstant = sessionDate.atTime(standardEnd).atZone(ZoneId.systemDefault()).toInstant()
-
-        val regularStart = maxOf(session.startTime, standardStartInstant)
-        val regularEnd = minOf(session.endTime, standardEndInstant)
-
-        val regular = if (regularStart.isBefore(regularEnd)) Duration.between(regularStart, regularEnd) else Duration.ZERO
-        val total = Duration.between(session.startTime, session.endTime)
-        val overtime = total - regular
-
-        return listOf(WorkHours(regular, overtime))
     }
 
-    private fun calculateRealHourlyWage(
-        filter: Filter,
-        periodStart: Instant,
-        periodEnd: Instant,
-        actualHoursDuration: Duration,
-        annualSalary: Double,
-        standardStart: LocalTime,
-        standardEnd: LocalTime
-    ): Pair<Double, Double> {
-        if (annualSalary == 0.0) return Pair(0.0, 0.0)
+    private fun processChartData(sessions: List<Session>, period: StatsPeriod, standardDuration: Duration, unit: TimeDisplayUnit): ChartData {
+        val overEntries = mutableListOf<FloatEntry>()
+        val underEntries = mutableListOf<FloatEntry>()
+        val labels = mutableListOf<String>()
+        val divisor = if (unit == TimeDisplayUnit.HOUR) 3600_000f else 60_000f
+        val zoneId = ZoneId.systemDefault()
 
-        val periodPay = when (filter) {
-            Filter.WEEK -> annualSalary / 52
-            Filter.MONTH -> annualSalary / 12
-            Filter.QUARTER -> annualSalary / 4
-            Filter.YEAR -> annualSalary
+        when (period) {
+            StatsPeriod.WEEK -> {
+                val firstDay = LocalDate.now().with(WeekFields.of(Locale.CHINESE).firstDayOfWeek)
+                (0..6).forEach { i ->
+                    val day = firstDay.plusDays(i.toLong())
+                    val daySessions = sessions.filter { it.startTime.atZone(zoneId).toLocalDate() == day }
+                    val totalMillis = daySessions.sumOf { Duration.between(it.startTime, it.endTime ?: it.startTime).toMillis() }
+                    val value = totalMillis / divisor
+                    if (value > standardDuration.toMillis() / divisor) {
+                        overEntries.add(FloatEntry(i.toFloat(), value))
+                        underEntries.add(FloatEntry(i.toFloat(), 0f))
+                    } else {
+                        underEntries.add(FloatEntry(i.toFloat(), value))
+                        overEntries.add(FloatEntry(i.toFloat(), 0f))
+                    }
+                    labels.add(day.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.CHINESE))
+                }
+            }
+            StatsPeriod.MONTH -> {
+                val month = YearMonth.now()
+                (1..month.lengthOfMonth()).forEach { i ->
+                    val day = month.atDay(i)
+                    val daySessions = sessions.filter { it.startTime.atZone(zoneId).toLocalDate() == day }
+                    val totalMillis = daySessions.sumOf { Duration.between(it.startTime, it.endTime ?: it.startTime).toMillis() }
+                    val value = totalMillis / divisor
+                    if (value > standardDuration.toMillis() / divisor) {
+                        overEntries.add(FloatEntry(i.toFloat() -1 , value))
+                        underEntries.add(FloatEntry(i.toFloat() -1, 0f))
+                    } else {
+                        underEntries.add(FloatEntry(i.toFloat() - 1, value))
+                        overEntries.add(FloatEntry(i.toFloat() - 1, 0f))
+                    }
+                    labels.add(i.toString())
+                }
+            }
+            StatsPeriod.YEAR -> {
+                (1..12).forEach { i ->
+                    val monthSessions = sessions.filter { it.startTime.atZone(zoneId).monthValue == i }
+                    val totalMillis = monthSessions.sumOf { Duration.between(it.startTime, it.endTime ?: it.startTime).toMillis() }
+                    val daysInMonth = YearMonth.of(LocalDate.now().year, i).lengthOfMonth()
+                    val workdaysInMonth = (1..daysInMonth).count { day ->
+                        val date = LocalDate.of(LocalDate.now().year, i, day)
+                        date.dayOfWeek !in listOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY)
+                    }
+                    val standardMonthlyMillis = standardDuration.toMillis() * workdaysInMonth
+                    val value = totalMillis / divisor
+                    if (value > standardMonthlyMillis / divisor) {
+                        overEntries.add(FloatEntry(i.toFloat() - 1, value))
+                        underEntries.add(FloatEntry(i.toFloat() - 1, 0f))
+                    } else {
+                        underEntries.add(FloatEntry(i.toFloat() - 1, value))
+                        overEntries.add(FloatEntry(i.toFloat() - 1, 0f))
+                    }
+                    labels.add(Month.of(i).getDisplayName(TextStyle.SHORT, Locale.CHINESE))
+                }
+            }
         }
+        return ChartData(listOf(overEntries, underEntries), labels)
+    }
 
-        val workdays = countWorkdays(periodStart, periodEnd)
-        val standardWorkdayHours = Duration.between(standardStart, standardEnd)
-        val standardTotalHours = standardWorkdayHours.multipliedBy(workdays.toLong())
-        val actualTotalHours = actualHoursDuration
+    private fun calculateOvertime(sessions: List<Session>, standardStart: LocalTime, standardEnd: LocalTime): Double {
+        return sessions.sumOf { session ->
+            if (session.endTime == null) return@sumOf 0.0
+            val sessionDate = session.startTime.atZone(ZoneId.systemDefault()).toLocalDate()
+            val standardStartInstant = sessionDate.atTime(standardStart).atZone(ZoneId.systemDefault()).toInstant()
+            val standardEndInstant = sessionDate.atTime(standardEnd).atZone(ZoneId.systemDefault()).toInstant()
 
-        val effectiveHours = maxOf(standardTotalHours, actualTotalHours)
-        if (effectiveHours.isZero) return Pair(0.0, 0.0)
+            val beforeStart = if (session.startTime.isBefore(standardStartInstant)) Duration.between(session.startTime, standardStartInstant).toMillis() else 0
+            val afterEnd = if (session.endTime.isAfter(standardEndInstant)) Duration.between(standardEndInstant, session.endTime).toMillis() else 0
 
-        val standardHourlyWage = periodPay / standardTotalHours.toHours().toDouble()
-        val realHourlyWage = periodPay / effectiveHours.toHours().toDouble()
+            (beforeStart + afterEnd).toDouble()
+        }
+    }
 
-        val diff = if (standardHourlyWage > 0) (realHourlyWage - standardHourlyWage) / standardHourlyWage * 100 else 0.0
+    private fun calculateActualWage(annualSalary: Double, totalWorkMillis: Long, standardDayDuration: Duration, workdays: Int, unit: TimeDisplayUnit): Pair<Double, Boolean> {
+        if (annualSalary == 0.0) return Pair(0.0, true)
 
-        return Pair(realHourlyWage, diff)
+        val workingDaysInYear = 251.0
+        val standardWorkHoursInYear = workingDaysInYear * (standardDayDuration.toMillis() / 3600_000.0)
+        if (standardWorkHoursInYear == 0.0) return Pair(0.0, true)
+
+        val standardWage = if (unit == TimeDisplayUnit.HOUR) annualSalary / standardWorkHoursInYear else annualSalary / (standardWorkHoursInYear * 60)
+
+        val standardTotalDuration = standardDayDuration.multipliedBy(workdays.toLong())
+        val effectiveDuration = maxOf(Duration.ofMillis(totalWorkMillis), standardTotalDuration)
+
+        val effectiveTotalHours = effectiveDuration.toMillis() / 3600_000.0
+        if (effectiveTotalHours == 0.0) return Pair(standardWage, true)
+
+        val periodPay = annualSalary * (workdays / workingDaysInYear)
+        val actualWage = if (unit == TimeDisplayUnit.HOUR) periodPay / effectiveTotalHours else periodPay / (effectiveTotalHours * 60)
+
+        return Pair(actualWage, actualWage >= standardWage)
     }
 
     private fun countWorkdays(start: Instant, end: Instant): Int {
         var count = 0
-        var currentDate = start.atZone(ZoneId.systemDefault()).toLocalDate()
-        val endDate = end.atZone(ZoneId.systemDefault()).toLocalDate()
-        while (!currentDate.isAfter(endDate)) {
-            val day = currentDate.dayOfWeek
-            if (day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY) {
+        val zoneId = ZoneId.systemDefault()
+        var currentDate = start.atZone(zoneId).toLocalDate()
+        val endDate = end.atZone(zoneId).toLocalDate()
+        while (currentDate.isBefore(endDate)) {
+            if (currentDate.dayOfWeek !in listOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY)) {
                 count++
             }
             currentDate = currentDate.plusDays(1)
         }
         return count
     }
-    
-    private fun getPeriod(filter: Filter): Pair<Instant, Instant> {
-        val today = LocalDate.now()
-        val zoneId = ZoneId.systemDefault()
-        return when (filter) {
-            Filter.WEEK -> {
-                val firstDayOfWeek = today.with(TemporalAdjusters.previousOrSame(WeekFields.of(Locale.getDefault()).firstDayOfWeek))
-                Pair(firstDayOfWeek.atStartOfDay(zoneId).toInstant(), today.atTime(23, 59, 59).atZone(zoneId).toInstant())
-            }
-            Filter.MONTH -> Pair(today.withDayOfMonth(1).atStartOfDay(zoneId).toInstant(), today.atTime(23, 59, 59).atZone(zoneId).toInstant())
-            Filter.QUARTER -> {
-                val quarterStartMonth = ((today.monthValue - 1) / 3) * 3 + 1
-                val quarterStart = LocalDate.of(today.year, quarterStartMonth, 1)
-                Pair(quarterStart.atStartOfDay(zoneId).toInstant(), today.atTime(23, 59, 59).atZone(zoneId).toInstant())
-            }
-            Filter.YEAR -> Pair(today.withDayOfYear(1).atStartOfDay(zoneId).toInstant(), today.atTime(23, 59, 59).atZone(zoneId).toInstant())
-        }
-    }
 
-    private fun formatChartData(data: Map<LocalDate, WorkHours>, filter: Filter): Map<String, WorkHours> {
-        return when (filter) {
-            Filter.WEEK -> data.mapKeys { it.key.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault()) }
-            Filter.MONTH -> data.mapKeys { it.key.dayOfMonth.toString() }
-            Filter.QUARTER -> data.mapKeys { "Q${(it.key.monthValue -1) / 3 + 1} ${it.key.month.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())}" }
-            Filter.YEAR -> data.mapKeys { it.key.month.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault()) }
-        }
-    }
-
-    fun setFilter(filter: Filter) {
-        _filter.value = filter
-    }
-
-    fun setTimeUnit(timeUnit: TimeUnit) {
-        _timeUnit.value = timeUnit
-    }
-
-    private fun <T : Comparable<T>> maxOf(a: T, b: T): T = if (a > b) a else b
-    private fun <T : Comparable<T>> minOf(a: T, b: T): T = if (a < b) a else b
+    private fun maxOf(a: Duration, b: Duration): Duration = if (a > b) a else b
 }

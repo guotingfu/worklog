@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">worklog</string>
+    <string name="onboarding_welcome_title">欢迎使用 WorkLog</string>
+    <string name="feature_offline_title">完全离线</string>
+    <string name="feature_offline_desc">数据仅存储在本地，无网络依赖</string>
+    <string name="feature_privacy_title">隐私安全</string>
+    <string name="feature_privacy_desc">绝不收集数据，薪资仅自己可见</string>
+    <string name="feature_hourly_rate_title">反向时薪</string>
+    <string name="feature_hourly_rate_desc">多维量化时薪，审视工作性价比</string>
+    <string name="onboarding_dont_show_again">不再显示此提示</string>
+    <string name="onboarding_start_button">开始使用</string>
 </resources>

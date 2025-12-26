@@ -1,1 +1,55 @@
-package com.example.worklog.ui.settings\n\nimport androidx.compose.foundation.background\nimport androidx.compose.foundation.layout.Arrangement\nimport androidx.compose.foundation.layout.padding\nimport androidx.compose.foundation.lazy.LazyColumn\nimport androidx.compose.foundation.lazy.items\nimport androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.ArrowBack\nimport androidx.compose.material3.*\nimport androidx.compose.runtime.Composable\nimport androidx.compose.runtime.collectAsState\nimport androidx.compose.runtime.getValue\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.text.font.FontWeight\nimport androidx.compose.ui.unit.dp\nimport com.example.worklog.ui.theme.BackgroundGray\n\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nfun AllSessionsScreen(\n    viewModel: SettingsViewModel,\n    onNavigateBack: () -> Unit\n) {\n    val allSessions by viewModel.allSessions.collectAsState(initial = emptyList())\n\n    Scaffold(\n        topBar = {\n            TopAppBar(\n                title = { Text(\"所有打卡记录\", fontWeight = FontWeight.Bold) },\n                navigationIcon = {\n                    IconButton(onClick = onNavigateBack) {\n                        Icon(Icons.Default.ArrowBack, contentDescription = \"Back\")\n                    }\n                }\n            )\n        }\n    ) {\ padding ->\n        LazyColumn(\n            modifier = Modifier\n                .background(BackgroundGray)\n                .padding(padding)\n                .padding(16.dp),\n            verticalArrangement = Arrangement.spacedBy(16.dp)\n        ) {\n            items(allSessions) { session ->\n                SessionHistoryItem(\n                    session = session,\n                    onDelete = { viewModel.deleteSession(it) },\n                    onUpdateNote = { s, n -> viewModel.updateSessionNote(s, n) }\n                )\n            }\n        }\n    }\n}
+package com.example.worklog.ui.settings
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.example.worklog.ui.theme.BackgroundGray
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AllSessionsScreen(
+    viewModel: SettingsViewModel,
+    onNavigateBack: () -> Unit
+) {
+    val allSessions by viewModel.allSessions.collectAsState(initial = emptyList())
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("所有打卡记录", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .background(BackgroundGray)
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(allSessions) { session ->
+                SessionHistoryItem(
+                    session = session,
+                    onDelete = { viewModel.deleteSession(it) },
+                    onUpdateNote = { s, n -> viewModel.updateSessionNote(s, n) }
+                )
+            }
+        }
+    }
+}

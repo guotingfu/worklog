@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 class OnboardingViewModel(private val settingsRepository: SettingsRepository) : ViewModel() {
 
     val onboardingCompleted: StateFlow<Boolean> = settingsRepository.onboardingCompletedFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     fun setOnboardingCompleted() {
         viewModelScope.launch {
