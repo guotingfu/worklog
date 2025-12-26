@@ -38,7 +38,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun SettingsScreen(
     uiState: SettingsUiState,
-    onUpdateAnnualSalary: (String) -> Unit,
+    onUpdateAnnualSalary: (TextFieldValue) -> Unit,
     onUpdateTheme: (Theme) -> Unit,
     onUpdateStartTime: (LocalTime) -> Unit,
     onUpdateEndTime: (LocalTime) -> Unit,
@@ -59,6 +59,14 @@ fun SettingsScreen(
         onResult = { uri -> if (uri != null) onImportData(uri) }
     )
 
+    var annualSalary by remember { mutableStateOf(TextFieldValue(uiState.annualSalary)) }
+
+    LaunchedEffect(uiState.annualSalary) {
+        if (annualSalary.text != uiState.annualSalary) {
+            annualSalary = TextFieldValue(uiState.annualSalary)
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -71,8 +79,13 @@ fun SettingsScreen(
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(12.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     OutlinedTextField(
-                        value = uiState.annualSalary,
-                        onValueChange = onUpdateAnnualSalary,
+                        value = annualSalary,
+                        onValueChange = { newValue ->
+                            if (newValue.text.all { it.isDigit() }) {
+                                annualSalary = newValue
+                                onUpdateAnnualSalary(newValue)
+                            }
+                        },
                         label = { Text("年薪 (元)") },
                         leadingIcon = { Text("¥") },
                         modifier = Modifier.fillMaxWidth(),

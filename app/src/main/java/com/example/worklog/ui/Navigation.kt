@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -119,7 +120,7 @@ fun MainScreen(settingsViewModel: SettingsViewModel) {
                 
                 SettingsScreen(
                     uiState = settingsUiState,
-                    onUpdateAnnualSalary = { settingsViewModel.updateAnnualSalary(it) },
+                    onUpdateAnnualSalary = { value: TextFieldValue -> settingsViewModel.updateAnnualSalary(value.text) },
                     onUpdateTheme = { settingsViewModel.updateTheme(it) },
                     onUpdateStartTime = { time: LocalTime -> settingsViewModel.updateStartTime(time) },
                     onUpdateEndTime = { time: LocalTime -> settingsViewModel.updateEndTime(time) },
