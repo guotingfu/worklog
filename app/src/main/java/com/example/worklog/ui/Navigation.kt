@@ -130,6 +130,7 @@ fun MainScreen(settingsViewModel: SettingsViewModel) {
                     onDeleteSession = { settingsViewModel.deleteSession(it) },
                     onUpdateSession = { session -> settingsViewModel.updateSession(session) },
                     onUpdateWorkingDays = { settingsViewModel.updateWorkingDays(it) },
+                    onUpdateReminderEnabled = { settingsViewModel.updateReminderEnabled(it) },
                     onBackupData = { uri -> settingsViewModel.backupData(context, uri) },
                     onImportData = { uri -> settingsViewModel.importData(context, uri) },
                     onNavigateToAllSessions = { navController.navigate(Screen.AllSessions.route) }

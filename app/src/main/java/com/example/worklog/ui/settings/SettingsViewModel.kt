@@ -40,8 +40,9 @@ data class SettingsUiState(
     val endTime: LocalTime = LocalTime.of(18, 0),
     val recentSessions: List<Session> = emptyList(),
     val workingDays: Set<DayOfWeek> = setOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY),
-    // [新增] 提醒开关状态
-    val reminderEnabled: Boolean = false
+    val reminderEnabled: Boolean = false,
+    // [新增] 引导页状态
+    val onboardingCompleted: Boolean = false
 )
 
 class SettingsViewModel(
@@ -53,13 +54,15 @@ class SettingsViewModel(
 
     // 组合所有数据源生成 UI 状态
     val uiState: StateFlow<SettingsUiState> = combine(
-        settingsRepository.annualSalaryFlow,    // args[0]
-        settingsRepository.themeFlow,           // args[1]
-        settingsRepository.startTimeFlow,       // args[2]
-        settingsRepository.endTimeFlow,         // args[3]
-        allSessionsFlow,                        // args[4]
-        settingsRepository.workingDaysFlow,     // args[5]
-        settingsRepository.reminderEnabledFlow  // args[6] [新增]
+        settingsRepository.annualSalaryFlow,
+        settingsRepository.themeFlow,
+        settingsRepository.startTimeFlow,
+        settingsRepository.endTimeFlow,
+        allSessionsFlow,
+        settingsRepository.workingDaysFlow,
+        settingsRepository.reminderEnabledFlow,
+        // [新增] 添加引导页状态 Flow
+        settingsRepository.onboardingCompletedFlow
     ) { args: Array<Any?> ->
         val salary = args[0] as String
         val theme = args[1] as Theme
@@ -70,6 +73,8 @@ class SettingsViewModel(
         @Suppress("UNCHECKED_CAST")
         val workingDays = args[5] as Set<DayOfWeek>
         val reminderEnabled = args[6] as Boolean
+        // [新增]
+        val onboardingCompleted = args[7] as Boolean
 
         val startTime = runCatching { LocalTime.parse(startTimeStr) }.getOrDefault(LocalTime.of(9, 0))
         val endTime = runCatching { LocalTime.parse(endTimeStr) }.getOrDefault(LocalTime.of(18, 0))
@@ -79,9 +84,11 @@ class SettingsViewModel(
             theme = theme,
             startTime = startTime,
             endTime = endTime,
-            recentSessions = sessions.take(1), // 设置页只显示最近一条预览
+            recentSessions = sessions.take(1),
             workingDays = workingDays,
-            reminderEnabled = reminderEnabled
+            reminderEnabled = reminderEnabled,
+            // [新增]
+            onboardingCompleted = onboardingCompleted
         )
     }.stateIn(
         scope = viewModelScope,
@@ -121,9 +128,13 @@ class SettingsViewModel(
         viewModelScope.launch { settingsRepository.updateWorkingDays(days) }
     }
 
-    // [新增] 更新提醒开关
     fun updateReminderEnabled(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.updateReminderEnabled(enabled) }
+    }
+
+    // [新增] 标记引导页已完成
+    fun setOnboardingCompleted() {
+        viewModelScope.launch { settingsRepository.setOnboardingCompleted() }
     }
 
     fun deleteSession(id: Long) {

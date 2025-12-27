@@ -61,17 +61,14 @@ fun SettingsScreen(
     onUpdateSession: (Session) -> Unit,
     onBackupData: (Uri) -> Unit,
     onImportData: (Uri) -> Unit,
-    // [新增] 切换提醒开关的回调，默认为空以兼容旧代码，但Navigation必须传
     onUpdateReminderEnabled: (Boolean) -> Unit = {},
     onNavigateToAllSessions: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // 管理弹窗显示
     var showPermissionDialog by remember { mutableStateOf(false) }
 
-    // 实时检测权限状态
     var hasNotificationPerm by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -84,7 +81,6 @@ fun SettingsScreen(
         mutableStateOf(PermissionUtils.isIgnoringBatteryOptimizations(context))
     }
 
-    // 监听生命周期，当用户从设置页面返回 App 时刷新权限状态
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -93,9 +89,9 @@ fun SettingsScreen(
                 }
                 isBatteryWhitelisted = PermissionUtils.isIgnoringBatteryOptimizations(context)
 
-                // 如果所有硬性权限都满足，且本来是要开启提醒的，则自动更新状态
                 if (showPermissionDialog && hasNotificationPerm && isBatteryWhitelisted) {
-                    // 可选：自动关闭弹窗并开启开关，这里保留手动关闭以确认
+                    onUpdateReminderEnabled(true)
+                    showPermissionDialog = false
                 }
             }
         }
@@ -129,7 +125,6 @@ fun SettingsScreen(
         "$prefix${String.format("%.1f", salaryNum / 10000)}万"
     } else null
 
-    // 弹窗逻辑
     if (showPermissionDialog) {
         PermissionGuideDialog(
             hasNotificationPerm = hasNotificationPerm,
@@ -176,7 +171,6 @@ fun SettingsScreen(
             }
         }
 
-        // [新增] 提醒功能 Section
         item { SectionTitle("提醒设置") }
         item {
             Card(
@@ -189,15 +183,12 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .clickable {
                             if (!uiState.reminderEnabled) {
-                                // 尝试开启：检查权限
                                 if (!hasNotificationPerm || !isBatteryWhitelisted) {
                                     showPermissionDialog = true
                                 } else {
-                                    // 权限都有了，直接开
                                     onUpdateReminderEnabled(true)
                                 }
                             } else {
-                                // 关闭无需检查
                                 onUpdateReminderEnabled(false)
                             }
                         }
@@ -262,7 +253,6 @@ fun SettingsScreen(
     }
 }
 
-// [新增] 权限引导弹窗
 @Composable
 fun PermissionGuideDialog(
     hasNotificationPerm: Boolean,
@@ -336,8 +326,6 @@ fun PermissionGuideDialog(
                     onClick = {
                         if (allHardPermissionsGranted) {
                             onAllGranted()
-                        } else {
-                            // 如果是用户点击了但系统权限还没刷新，或者不想开启，点击无效
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -400,8 +388,6 @@ fun PermissionItem(
         }
     }
 }
-
-// --- 以下是必须保留的辅助组件 ---
 
 @Composable
 fun WorkingDaysSelector(
@@ -514,7 +500,9 @@ fun SessionHistoryItem(session: Session, onDelete: (Long) -> Unit, onUpdate: (Se
         )
     }
 
-    val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    // [修复] 采用两种不同的格式化器，分别获取日期和星期
+    val dateFormatter = DateTimeFormatter.ofPattern("yyyy年MM月dd日", Locale.CHINESE)
+    val dayOfWeekFormatter = DateTimeFormatter.ofPattern("EEEE", Locale.CHINESE)
     val startTime = session.startTime.atZone(ZoneId.systemDefault())
     val endTime = session.endTime?.atZone(ZoneId.systemDefault())
 
@@ -525,14 +513,26 @@ fun SessionHistoryItem(session: Session, onDelete: (Long) -> Unit, onUpdate: (Se
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(dateFormatter.format(startTime), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                // [修复] 使用 Column 实现上下布局
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        dateFormatter.format(startTime),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        dayOfWeekFormatter.format(startTime),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = session.isHoliday,
                         onCheckedChange = { onUpdate(session.copy(isHoliday = it)) },
                         modifier = Modifier.size(32.dp)
                     )
-                    Text("今天是法定节假日", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    Text("法定节假日", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 if (endTime != null) {

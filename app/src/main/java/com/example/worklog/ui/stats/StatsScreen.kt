@@ -112,11 +112,12 @@ fun StatsScreen(viewModel: StatsViewModel = viewModel()) {
                 value = "¥${String.format(wageFormat, uiState.actualWage)}",
                 unit = "",
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                isStandard = uiState.isWageStandard
+                isStandard = uiState.isWageStandard,
+                decreasePercent = uiState.wageDecreasePercent
             )
         }
         Spacer(modifier = Modifier.height(12.dp))
-        OvertimeCard(uiState.overtimeDuration, uiState.selectedUnit)
+        OvertimeCard(uiState.overtimeDuration, uiState.selectedUnit, uiState.selectedPeriod)
         Spacer(modifier = Modifier.height(12.dp))
         InfoFooter()
     }
@@ -179,9 +180,7 @@ fun ChartOverviewCard(uiState: StatsUiState, onPeriodChange: (StatsPeriod) -> Un
                     Text("暂无数据", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
                 }
             } else {
-                // [修复] 使用 remember 创建单例 producer，并用 LaunchedEffect 更新数据
-                // 这样避免了 Recomposition 时频繁销毁重建导致图表无法绘制的问题
-                val producer = remember { ChartEntryModelProducer() }
+                val producer = remember { ChartEntryModelProducer(uiState.chartData.entries) }
                 LaunchedEffect(uiState.chartData.entries) {
                     producer.setEntries(uiState.chartData.entries)
                 }
@@ -198,15 +197,15 @@ fun ChartOverviewCard(uiState: StatsUiState, onPeriodChange: (StatsPeriod) -> Un
                     chart = columnChart(
                         columns = listOf(
                             LineComponent(
-                                color = AlertRed.toArgb(),
-                                thicknessDp = barThickness.value,
-                                shape = Shapes.pillShape
-                            ),
-                            LineComponent(
                                 color = SuccessGreen.toArgb(),
                                 thicknessDp = barThickness.value,
                                 shape = Shapes.pillShape
                             ),
+                            LineComponent(
+                                color = AlertRed.toArgb(),
+                                thicknessDp = barThickness.value,
+                                shape = Shapes.pillShape
+                            )
                         ),
                         spacing = barSpacing,
                         mergeMode = com.patrykandpatrick.vico.core.chart.column.ColumnChart.MergeMode.Stack
@@ -228,8 +227,9 @@ fun ChartOverviewCard(uiState: StatsUiState, onPeriodChange: (StatsPeriod) -> Un
                             val label = uiState.chartData.labels.getOrElse(index) { "" }
                             when (labelStrategy) {
                                 LabelStrategy.SHOW_ALL -> label
+                                // [修复] 优化为每周第一天显示，避免拥挤
                                 LabelStrategy.SPARSE -> {
-                                    if (index == 0 || (index + 1) % 5 == 0) label else ""
+                                    if ((index + 1) % 7 == 1) label else ""
                                 }
                             }
                         }
@@ -257,7 +257,14 @@ fun PeriodSelectorButton(text: String, isSelected: Boolean, onClick: () -> Unit)
 }
 
 @Composable
-fun DataCard(title: String, value: String, unit: String, modifier: Modifier = Modifier, isStandard: Boolean? = null) {
+fun DataCard(
+    title: String,
+    value: String,
+    unit: String,
+    modifier: Modifier = Modifier,
+    isStandard: Boolean? = null,
+    decreasePercent: Double = 0.0
+) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = modifier) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
@@ -267,17 +274,26 @@ fun DataCard(title: String, value: String, unit: String, modifier: Modifier = Mo
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(unit, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 2.dp))
             }
-            isStandard?.let {
+            isStandard?.let { isStd ->
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (it) Icons.Default.CheckCircle else Icons.Default.ArrowDownward,
+                        imageVector = if (isStd) Icons.Default.CheckCircle else Icons.Default.ArrowDownward,
                         contentDescription = null,
-                        tint = if (it) SuccessGreen else AlertRed,
+                        tint = if (isStd) SuccessGreen else AlertRed,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (it) "标准" else "下降", color = if (it) SuccessGreen else AlertRed, fontSize = 12.sp)
+                    Text(if (isStd) "标准" else "下降", color = if (isStd) SuccessGreen else AlertRed, fontSize = 12.sp)
+                    if (!isStd && decreasePercent > 0) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = String.format("(↓%.1f%%)", decreasePercent * 100),
+                            color = AlertRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -285,12 +301,18 @@ fun DataCard(title: String, value: String, unit: String, modifier: Modifier = Mo
 }
 
 @Composable
-fun OvertimeCard(overtime: Double, unit: TimeDisplayUnit) {
+fun OvertimeCard(overtime: Double, unit: TimeDisplayUnit, period: StatsPeriod) {
+    val periodText = when (period) {
+        StatsPeriod.WEEK -> "本周"
+        StatsPeriod.MONTH -> "本月"
+        StatsPeriod.YEAR -> "全年"
+    }
+
     Card(colors = CardDefaults.cardColors(containerColor = AlertRed.copy(alpha = 0.1f)), modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("加班统计", color = AlertRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Spacer(modifier = Modifier.width(12.dp))
-            Text(String.format("本周期额外工作了 %.1f ${unit.name.lowercase()}", overtime), color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+            Text(String.format("%s额外工作了 %.1f %s", periodText, overtime, unit.name.lowercase()), color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
         }
     }
 }
@@ -315,8 +337,8 @@ fun InfoFooter() {
                         "2. 标准时薪 = 年薪 ÷ (年工作日 × 标准日工时)。\n" +
                         "3. 实际时薪 = 周期应发薪资 ÷ 有效总工时。\n" +
                         "   • 周期薪资 = 年薪 × (周期理论工作日 ÷ 年工作日)\n" +
-                        "   • 有效工时 = Max(实际总工时, 标准总工时)\n" +
-                        "4. 本软件不鼓励摸鱼和早退，早退按标准工时计算，避免时薪虚高；加班时间计入实际工时计算，体现薪资稀释。",
+                        "   • 有效工时 = 周期标准总工时 + 累计加班时长\n" +
+                        "4. 本软件遵循“最高时薪即标准时薪”原则。早退按标准工时计算；只要有加班，有效工时即增加，导致时薪被稀释。",
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 fontSize = 11.sp,
                 lineHeight = 16.sp,

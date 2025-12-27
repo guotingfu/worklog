@@ -19,8 +19,6 @@ import com.example.worklog.ui.theme.*
 
 @Composable
 fun CalculatorScreen() {
-    // 1. [优化] 初始值改为空字符串 ""
-    // 使用 remember 确保数据仅在 App 存活期间保留，杀后台重启后会自动重置
     var monthlySalary by remember { mutableStateOf("") }
     var months by remember { mutableStateOf("") }
     var bonus by remember { mutableStateOf("") }
@@ -29,10 +27,8 @@ fun CalculatorScreen() {
     var vestingYears by remember { mutableStateOf("") }
     var otherCash by remember { mutableStateOf("") }
 
-    // 实时计算逻辑 (处理空字符串转数字的安全问题)
     val stockValue = (stockQty.toIntOrNull() ?: 0) * (stockPrice.toDoubleOrNull() ?: 0.0)
     val vesting = vestingYears.toIntOrNull() ?: 1
-    // 避免除以0
     val safeVestingYears = if (vesting > 0) vesting else 1
     val annualStockValue = stockValue / safeVestingYears
 
@@ -50,7 +46,6 @@ fun CalculatorScreen() {
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        // 标题栏 + 重置按钮
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -64,7 +59,6 @@ fun CalculatorScreen() {
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            // [优化] 添加重置按钮
             Button(
                 onClick = {
                     monthlySalary = ""
@@ -87,14 +81,15 @@ fun CalculatorScreen() {
             }
         }
 
-        // 结果卡片
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(8.dp)
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
@@ -103,13 +98,27 @@ fun CalculatorScreen() {
                     style = MaterialTheme.typography.titleMedium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                // 如果没有输入任何数据，显示 0
-                Text(
-                    text = "¥ ${String.format("%.0f", totalPackage)}",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold
-                )
+
+                // [优化] 将 ¥ 和数字拆分到 Row 中，防止因数字长度变化导致 ¥ 位置跳动
+                Row(
+                    verticalAlignment = Alignment.Bottom, // 让 ¥ 和数字底部对齐
+                ) {
+                    Text(
+                        text = "¥",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.headlineSmall, // 使用稍小的字号以突出数字
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(end = 4.dp, bottom = 4.dp) // 微调位置，使其看起来更和谐
+                    )
+                    Text(
+                        // [优化] 添加千位分隔符，提升可读性
+                        text = String.format("%,.0f", totalPackage),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Text(
                     text = "*税前估算, 仅供参考",
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f),
@@ -121,7 +130,6 @@ fun CalculatorScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // 输入区域
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier.fillMaxWidth()
@@ -135,7 +143,6 @@ fun CalculatorScreen() {
                         modifier = Modifier.weight(1f),
                         prefix = "¥"
                     )
-                    // [修改] 文案改为“发薪月数”
                     InputItem(
                         value = months,
                         onValueChange = { months = it },
