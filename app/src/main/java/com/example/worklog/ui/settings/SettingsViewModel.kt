@@ -15,22 +15,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalTime
 
-
-// [新增] Gson Type Adapter for Instant
 class InstantAdapter : com.google.gson.JsonSerializer<Instant>, com.google.gson.JsonDeserializer<Instant> {
     override fun serialize(src: Instant?, typeOfSrc: java.lang.reflect.Type?, context: com.google.gson.JsonSerializationContext?): com.google.gson.JsonElement {
         return com.google.gson.JsonPrimitive(src?.toString())
     }
-
     override fun deserialize(json: com.google.gson.JsonElement?, typeOfT: java.lang.reflect.Type?, context: com.google.gson.JsonDeserializationContext?): Instant {
         return Instant.parse(json?.asString)
     }
@@ -41,7 +38,10 @@ data class SettingsUiState(
     val theme: Theme = Theme.SYSTEM,
     val startTime: LocalTime = LocalTime.of(9, 0),
     val endTime: LocalTime = LocalTime.of(18, 0),
-    val recentSessions: List<Session> = emptyList()
+    val recentSessions: List<Session> = emptyList(),
+    val workingDays: Set<DayOfWeek> = setOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY),
+    // [新增] 提醒开关状态
+    val reminderEnabled: Boolean = false
 )
 
 class SettingsViewModel(
@@ -51,21 +51,37 @@ class SettingsViewModel(
 
     private val allSessionsFlow = sessionDao.getRecentSessions(50)
 
+    // 组合所有数据源生成 UI 状态
     val uiState: StateFlow<SettingsUiState> = combine(
-        settingsRepository.annualSalaryFlow,
-        settingsRepository.themeFlow,
-        settingsRepository.startTimeFlow,
-        settingsRepository.endTimeFlow,
-        allSessionsFlow
-    ) { salary, theme, startTimeStr, endTimeStr, sessions ->
+        settingsRepository.annualSalaryFlow,    // args[0]
+        settingsRepository.themeFlow,           // args[1]
+        settingsRepository.startTimeFlow,       // args[2]
+        settingsRepository.endTimeFlow,         // args[3]
+        allSessionsFlow,                        // args[4]
+        settingsRepository.workingDaysFlow,     // args[5]
+        settingsRepository.reminderEnabledFlow  // args[6] [新增]
+    ) { args: Array<Any?> ->
+        val salary = args[0] as String
+        val theme = args[1] as Theme
+        val startTimeStr = args[2] as String
+        val endTimeStr = args[3] as String
+        @Suppress("UNCHECKED_CAST")
+        val sessions = args[4] as List<Session>
+        @Suppress("UNCHECKED_CAST")
+        val workingDays = args[5] as Set<DayOfWeek>
+        val reminderEnabled = args[6] as Boolean
+
         val startTime = runCatching { LocalTime.parse(startTimeStr) }.getOrDefault(LocalTime.of(9, 0))
         val endTime = runCatching { LocalTime.parse(endTimeStr) }.getOrDefault(LocalTime.of(18, 0))
+
         SettingsUiState(
             annualSalary = salary,
             theme = theme,
             startTime = startTime,
             endTime = endTime,
-            recentSessions = sessions.take(1)
+            recentSessions = sessions.take(1), // 设置页只显示最近一条预览
+            workingDays = workingDays,
+            reminderEnabled = reminderEnabled
         )
     }.stateIn(
         scope = viewModelScope,
@@ -73,6 +89,7 @@ class SettingsViewModel(
         initialValue = SettingsUiState()
     )
 
+    // 用于“所有记录”页面的完整数据流
     val allSessions: StateFlow<List<Session>> = allSessionsFlow.map { it.take(30) }
         .stateIn(
             scope = viewModelScope,
@@ -100,12 +117,21 @@ class SettingsViewModel(
         viewModelScope.launch { settingsRepository.updateEndTime(time.toString()) }
     }
 
+    fun updateWorkingDays(days: Set<DayOfWeek>) {
+        viewModelScope.launch { settingsRepository.updateWorkingDays(days) }
+    }
+
+    // [新增] 更新提醒开关
+    fun updateReminderEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.updateReminderEnabled(enabled) }
+    }
+
     fun deleteSession(id: Long) {
         viewModelScope.launch { sessionDao.deleteSessionById(id) }
     }
 
-    fun updateSessionNote(session: Session, note: String) {
-        viewModelScope.launch { sessionDao.update(session.copy(note = note)) }
+    fun updateSession(session: Session) {
+        viewModelScope.launch { sessionDao.update(session) }
     }
 
     fun backupData(context: Context, uri: Uri) {
@@ -113,11 +139,9 @@ class SettingsViewModel(
             try {
                 val sessions = sessionDao.getAllSessionsList()
                 val json = gson.toJson(sessions)
-
                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                     outputStream.write(json.toByteArray())
                 }
-
                 launch(Dispatchers.Main) {
                     Toast.makeText(context, "备份成功", Toast.LENGTH_SHORT).show()
                 }
@@ -147,32 +171,17 @@ class SettingsViewModel(
                 val type = object : TypeToken<List<Session>>() {}.type
                 val sessions: List<Session> = gson.fromJson(json, type)
 
-                sessionDao.insertAll(sessions)
+                val threshold = Instant.parse("2020-01-01T00:00:00Z")
+                val validSessions = sessions.filter { it.startTime.isAfter(threshold) }
+                sessionDao.insertAll(validSessions)
 
                 launch(Dispatchers.Main) {
-                    Toast.makeText(context, "导入成功，共 ${sessions.size} 条", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "导入成功，有效记录 ${validSessions.size} 条", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 launch(Dispatchers.Main) {
                     Toast.makeText(context, "导入失败:文件格式错误", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-    
-    fun cleanInvalidData(context: Context) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val threshold = Instant.parse("2000-01-01T00:00:00Z")
-                sessionDao.deleteSessionsBefore(threshold)
-                launch(Dispatchers.Main) {
-                    Toast.makeText(context, "异常数据已清理", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                 e.printStackTrace()
-                launch(Dispatchers.Main) {
-                    Toast.makeText(context, "清理失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                 }
             }
         }

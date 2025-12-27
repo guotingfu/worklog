@@ -9,6 +9,8 @@ import com.example.worklog.ui.settings.SettingsViewModel
 import com.example.worklog.ui.stats.StatsViewModel
 
 class ViewModelFactory(private val container: AppContainer) : ViewModelProvider.Factory {
+
+    @Suppress("UNCHECKED_CAST") // [修改] 添加此注解以消除转换警告
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return when {
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> {

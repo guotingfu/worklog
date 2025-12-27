@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,9 +44,27 @@ import com.patrykandpatrick.vico.core.marker.Marker
 @Composable
 fun StatsScreen(viewModel: StatsViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsState()
-
-    // [修改] 统一保留两位小数
     val wageFormat = "%.2f"
+
+    if (uiState.errorMessage != null) {
+        Box(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Error, contentDescription = null, tint = AlertRed, modifier = Modifier.size(48.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("统计页面发生错误", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = uiState.errorMessage ?: "未知错误",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -55,7 +74,6 @@ fun StatsScreen(viewModel: StatsViewModel = viewModel()) {
     ) {
         StatsHeader(uiState.selectedUnit, onUnitChange = { viewModel.setUnit(it) })
 
-        // [新增] 异常设置提示 Banner
         if (uiState.standardWorkHours < 8.0) {
             Spacer(modifier = Modifier.height(8.dp))
             Card(
@@ -91,7 +109,6 @@ fun StatsScreen(viewModel: StatsViewModel = viewModel()) {
             DataCard("总工时", String.format("%.1f", uiState.totalWorkDuration), uiState.selectedUnit.name.lowercase(), Modifier.weight(1f).fillMaxHeight())
             DataCard(
                 title = if(uiState.selectedUnit == TimeDisplayUnit.HOUR) "实际时薪" else "实际分薪",
-                // [修改] 使用动态精度格式化，避免分薪被四舍五入成整数
                 value = "¥${String.format(wageFormat, uiState.actualWage)}",
                 unit = "",
                 modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -105,7 +122,6 @@ fun StatsScreen(viewModel: StatsViewModel = viewModel()) {
     }
 }
 
-// ... 保持原有代码 ...
 @Composable
 fun StatsHeader(selectedUnit: TimeDisplayUnit, onUnitChange: (TimeDisplayUnit) -> Unit) {
     Row(
@@ -158,9 +174,15 @@ fun ChartOverviewCard(uiState: StatsUiState, onPeriodChange: (StatsPeriod) -> Un
                 Box(modifier = Modifier.height(160.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
+            } else if (uiState.chartData.entries.isEmpty() || uiState.chartData.entries.all { it.isEmpty() }) {
+                Box(modifier = Modifier.height(160.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("暂无数据", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                }
             } else {
+                // [修复] 使用 remember 创建单例 producer，并用 LaunchedEffect 更新数据
+                // 这样避免了 Recomposition 时频繁销毁重建导致图表无法绘制的问题
                 val producer = remember { ChartEntryModelProducer() }
-                LaunchedEffect(uiState.chartData) {
+                LaunchedEffect(uiState.chartData.entries) {
                     producer.setEntries(uiState.chartData.entries)
                 }
 
@@ -194,9 +216,9 @@ fun ChartOverviewCard(uiState: StatsUiState, onPeriodChange: (StatsPeriod) -> Un
                     horizontalLayout = HorizontalLayout.FullWidth(),
                     marker = marker,
                     startAxis = rememberStartAxis(
-                        label = null,
+                        label = textComponent(color = Color.Transparent),
                         axis = null,
-                        guideline = null // [修改] 去掉水平网格线
+                        guideline = null
                     ),
                     bottomAxis = rememberBottomAxis(
                         label = textComponent(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), textSize = 10.sp),
@@ -276,14 +298,29 @@ fun OvertimeCard(overtime: Double, unit: TimeDisplayUnit) {
 @Composable
 fun InfoFooter() {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.padding(12.dp)) {
-            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.size(16.dp).padding(top = 2.dp))
-            Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "算法说明",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "为鼓励健康工作节奏，早退/未达标时段按标准薪资显示。仅加班时，时薪因稀释降低。",
+                text = "1. 年工作日 = (每周工作天数 × 52周) - 11天法定节假日。\n" +
+                        "2. 标准时薪 = 年薪 ÷ (年工作日 × 标准日工时)。\n" +
+                        "3. 实际时薪 = 周期应发薪资 ÷ 有效总工时。\n" +
+                        "   • 周期薪资 = 年薪 × (周期理论工作日 ÷ 年工作日)\n" +
+                        "   • 有效工时 = Max(实际总工时, 标准总工时)\n" +
+                        "4. 本软件不鼓励摸鱼和早退，早退按标准工时计算，避免时薪虚高；加班时间计入实际工时计算，体现薪资稀释。",
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 fontSize = 11.sp,
-                lineHeight = 16.sp
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(start = 4.dp)
             )
         }
     }

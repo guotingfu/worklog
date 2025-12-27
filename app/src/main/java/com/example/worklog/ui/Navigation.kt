@@ -88,8 +88,8 @@ fun MainScreen(settingsViewModel: SettingsViewModel) {
         }
     ) { innerPadding ->
         NavHost(
-            navController, 
-            startDestination = Screen.Home.route, 
+            navController,
+            startDestination = Screen.Home.route,
             modifier = Modifier.padding(innerPadding),
             enterTransition = { EnterTransition.None },
             exitTransition = { ExitTransition.None },
@@ -105,7 +105,10 @@ fun MainScreen(settingsViewModel: SettingsViewModel) {
                     onToggleWork = { homeViewModel.toggleWork() },
                     annualSalary = uiState.annualSalary,
                     isSalaryVisible = uiState.isSalaryVisible,
-                    onToggleSalaryVisibility = { homeViewModel.toggleSalaryVisibility() }
+                    onToggleSalaryVisibility = { homeViewModel.toggleSalaryVisibility() },
+                    isHoliday = uiState.uiIsHoliday, // 使用新的 uiIsHoliday 字段
+                    // [修复] 传递 it (Boolean) 给 toggleHoliday
+                    onToggleHoliday = { homeViewModel.toggleHoliday(it) }
                 )
             }
             composable(Screen.Stats.route) {
@@ -115,9 +118,9 @@ fun MainScreen(settingsViewModel: SettingsViewModel) {
             composable(Screen.Calculator.route) { CalculatorScreen() }
             composable(Screen.Settings.route) {
                 val settingsUiState by settingsViewModel.uiState.collectAsState()
-                
+
                 val context = LocalContext.current
-                
+
                 SettingsScreen(
                     uiState = settingsUiState,
                     onUpdateAnnualSalary = { value: TextFieldValue -> settingsViewModel.updateAnnualSalary(value.text) },
@@ -125,10 +128,10 @@ fun MainScreen(settingsViewModel: SettingsViewModel) {
                     onUpdateStartTime = { time: LocalTime -> settingsViewModel.updateStartTime(time) },
                     onUpdateEndTime = { time: LocalTime -> settingsViewModel.updateEndTime(time) },
                     onDeleteSession = { settingsViewModel.deleteSession(it) },
-                    onUpdateSessionNote = { session, note -> settingsViewModel.updateSessionNote(session, note) },
+                    onUpdateSession = { session -> settingsViewModel.updateSession(session) },
+                    onUpdateWorkingDays = { settingsViewModel.updateWorkingDays(it) },
                     onBackupData = { uri -> settingsViewModel.backupData(context, uri) },
                     onImportData = { uri -> settingsViewModel.importData(context, uri) },
-                    onCleanInvalidData = { settingsViewModel.cleanInvalidData(context) },
                     onNavigateToAllSessions = { navController.navigate(Screen.AllSessions.route) }
                 )
             }

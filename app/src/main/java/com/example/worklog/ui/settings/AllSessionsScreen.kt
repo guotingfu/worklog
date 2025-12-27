@@ -43,11 +43,12 @@ fun AllSessionsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(allSessions) { session ->
+            items(allSessions, key = { it.id }) { session ->
+                // [修复] SessionHistoryItem 参数更新
                 SessionHistoryItem(
                     session = session,
                     onDelete = { viewModel.deleteSession(it) },
-                    onUpdateNote = { s, n -> viewModel.updateSessionNote(s, n) }
+                    onUpdate = { updatedSession -> viewModel.updateSession(updatedSession) }
                 )
             }
         }
