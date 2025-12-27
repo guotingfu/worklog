@@ -28,7 +28,7 @@ WorkLog 旨在帮助用户清晰地记录工作投入，并通过独特的数据
 
 ## 📱 截图预览 (Screenshots)
 
-| 主页 (Home) | 统计 (Stats) | 设置 (Settings) |                   引导 (Calculator)                   |
+| 主页 (Home) | 统计 (Stats) | 设置 (Settings) |                   计算器(Calculator)                   |
 |:---:|:---:|:---:|:---------------------------------------------------:|
 | <img src="screenshots/home.png" width="200"/> | <img src="screenshots/stats.png" width="200"/> | <img src="screenshots/settings.png" width="200"/> | <img src="screenshots/Calculator.png" width="200"/> |
 
